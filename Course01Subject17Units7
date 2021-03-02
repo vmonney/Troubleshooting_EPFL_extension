@@ -1,0 +1,22 @@
+# The mapview and mapedit doesn't work in my script.
+
+install.packages("mapview")
+install.packages("mapedit")
+library(mapview)
+library(mapedit)
+library(sf)
+library(tidyverse)
+library(janitor)
+
+
+world <- st_read("naturalearth/ne_110m_admin_0_countries.shp")
+
+mapview(world) %>%
+  editMap()
+  
+  
+  ############## Below is the error message I get when running the code above ###############################
+  
+  Listening on http://127.0.0.1:6742
+Warning: Error in value[[3L]]: Couldn't normalize path in `addResourcePath`, with arguments: `prefix` = 'PopupTable-0.0.1'; `directoryPath` = ''
+  1: %>%
