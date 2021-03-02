@@ -1,4 +1,4 @@
-### Drawing maps with data
+### Drawing maps with data /// I get no plot  when I run the last ggplot function of this script (just a black screen)
 
 setwd("~/data science/R/EPFL-Applied_data_visualization_and_communication/01_Basics_of_Data_Visualization/17_Case_study_in_Cartography")
 
@@ -55,3 +55,9 @@ ggplot() +
   ) +
   theme_void() +
   theme(plot.background = element_rect(fill = "black"))
+  
+  
+  
+  ###########   I get weird messages in my task manager window under RStudio such as "Qt Qtwebengineprocess" or "crashpad_handler.exe"
+  
+  
