@@ -1,0 +1,57 @@
+### Drawing maps with data
+
+setwd("~/data science/R/EPFL-Applied_data_visualization_and_communication/01_Basics_of_Data_Visualization/17_Case_study_in_Cartography")
+
+library(tidyverse)
+
+airports <- read_csv("airports.dat",
+                     col_names = FALSE
+)
+
+
+routes <- read_csv("routes.dat",
+                   col_names = FALSE
+)
+
+airports <- airports %>%
+  rename(
+    lat = X7,
+    lon = X8,
+    airport_code = X5
+  ) %>%
+  select(airport_code, lat, lon)
+
+routes <- routes %>%
+  rename(
+    departure_code = X3,
+    arrival_code = X5
+  ) %>%
+  select(departure_code, arrival_code) %>%
+  filter(departure_code != arrival_code)
+
+routes <- routes %>%
+  left_join(airports, c("departure_code" = "airport_code")) %>%
+  rename(
+    lat_dep = lat,
+    lon_dep = lon
+  ) %>%
+  left_join(airports, c("arrival_code" = "airport_code")) %>%
+  rename(
+    lat_arr = lat,
+    lon_arr = lon
+  )
+
+head(routes)
+
+ggplot() +
+  geom_curve(
+    data = routes, aes(
+      x = lon_dep,
+      y = lat_dep,
+      xend = lon_arr,
+      yend = lat_arr
+    ),
+    col = "lightgreen", size = 0.1, curvature = .1, alpha = 0.05
+  ) +
+  theme_void() +
+  theme(plot.background = element_rect(fill = "black"))
