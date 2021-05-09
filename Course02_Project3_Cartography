@@ -1,0 +1,357 @@
+Course 02 advanced Cartography Project 3
+
+```
+library(tidyverse)
+library(sf)
+library(rcartocolor)
+library(transformr)
+library(gganimate)
+```
+
+# Introduction
+
+# Question 1
+
+```{r}
+# Import Data
+ihme <- read_csv("data/IHME_DAH_DATABASE_1990_2019_Y2020M04D23.CSV", na = c(NA,"-",""))
+
+# Prepare data for total expenditure in 2019
+tot_spending_2019 <- ihme %>% 
+  filter(year == 2019) %>% 
+  select(source, dah_19) %>% 
+  group_by(source) %>% 
+  summarise(expenditure = sum(dah_19), na.rm = TRUE) %>% 
+  ungroup()
+
+# add the 3-letter code for each country
+tot_spending_2019 <- tot_spending_2019 %>% 
+  mutate(source_code = countrycode::countrycode(sourcevar = source,
+                                         origin = "country.name",
+                                         destination = "iso3c"))
+
+# Import shapefiles (X)
+world <- st_read("data/naturalearth/ne_110m_admin_0_countries.shp")
+
+# Joining the files
+world_2019 <- world %>%
+  left_join(tot_spending_2019, c("ISO_A3" = "source_code"))
+
+# Create categories
+quantile_spending_2019 <- world_2019 %>%
+  pull(expenditure) %>%
+  quantile(probs = c(0, 0.25, 0.5, 0.75, 1), na.rm = TRUE)
+
+# Reformating the labels
+labels_spending <- tibble(
+  lab1 = quantile_spending_2019,
+  lab2 = c(quantile_spending_2019[2:length(quantile_spending_2019)], NA)) %>%
+  slice(1:n() - 1) %>% # We remove the last row, since it has no meaning
+  mutate_all(round, digits = 0) %>% # We remove digits after the 0
+  mutate_all(paste0, "$") %>% # We add the dollar sign after the digits
+  mutate(labs = paste(lab1, lab2, sep =  "-"))
+
+# Includes categories in the shapefile with correct labels
+world_2019 <- world_2019 %>%
+  mutate(quantiles = cut(expenditure,
+                         breaks = quantile_spending_2019, 
+                         labels = labels_spending$labs, 
+                         include.lowest = TRUE))
+
+# Change the projection
+world_robin_2019 <- st_transform(world_2019, crs = 'ESRI:54030')
+
+# Plot the cartography
+ggplot(data = world_robin_2019)+
+  geom_sf(mapping = aes(fill = quantiles)) +
+  scale_fill_carto_d(type = quantitative, palette = "BurgYl") +
+  guides(fill = guide_legend(label.position = "bottom")) +
+  theme_void() +
+  theme(legend.position = "bottom") +
+  labs(
+    title = "Total expenditures per country for health aid",
+    subtitle = "in 2019",
+    caption = "Source: Eurostat",
+    fill = "" )
+```
+
+# Question 2
+
+```{r}
+# Last year available with sufficient data 2015
+
+# Prepare data for total expenditure in 2015
+tot_earnings_2015 <- ihme %>% 
+  filter(year == 2015) %>% 
+  select(recipient_isocode, dah_19) %>% 
+  group_by(recipient_isocode) %>% 
+  summarise(earnings = sum(dah_19), na.rm = TRUE) %>% 
+  ungroup()
+
+# Joining the files
+world_2015 <- world %>%
+  left_join(tot_earnings_2015, c("ISO_A3" = "recipient_isocode"))
+
+# Create categories
+quantile_earnings <- world_2015 %>%
+  pull(earnings) %>%
+  quantile(probs = c(0, 0.25, 0.5, 0.75, 1), na.rm = TRUE)
+
+# Reformating the labels
+labels_earnings <- tibble(
+  lab1 = quantile_earnings,
+  lab2 = c(quantile_earnings[2:length(quantile_earnings)], NA)) %>%
+  slice(1:n() - 1) %>% # We remove the last row, since it has no meaning
+  mutate_all(round, digits = 0) %>% # We remove digits after the 0
+  mutate_all(paste0, "$") %>% # We add the dollar sign after the digits
+  mutate(labs = paste(lab1, lab2, sep =  "-"))
+
+# Includes categories in the shapefile with correct labels
+world_2015 <- world_2015 %>%
+  mutate(quantiles_earnings = cut(earnings,
+                         breaks = quantile_earnings, 
+                         labels = labels_earnings$labs, 
+                         include.lowest = TRUE))
+
+# Change the projection
+world_robin_2015 <- st_transform(world, crs = 'ESRI:54030')
+
+# Plot the cartography
+ggplot(data = world_2015)+
+  geom_sf(mapping = aes(fill = quantiles_earnings)) +
+  scale_fill_carto_d(type = quantitative, palette = "BurgYl") +
+  guides(fill = guide_legend(label.position = "bottom")) +
+  theme_void() +
+  theme(legend.position = "bottom") +
+  labs(
+    title = "Total funds received per country for health aid",
+    subtitle = "in 2015",
+    caption = "Source: Eurostat",
+    fill = ""  )
+```
+
+# Question 3
+
+```{r}
+# Extract the name of the gdb_regions
+gbd_region_name <- ihme %>% 
+  distinct(gbd_region) %>% 
+  filter(gbd_region != "Europe, Western",
+         gbd_region != "Global",
+         gbd_region != "Unallocated/Unspecified")
+
+# create lists of all country codes within a region
+region <- ihme %>% 
+  group_by(gbd_region) %>% 
+  distinct(recipient_isocode) %>%
+  summarise(recipient_isocode = list(recipient_isocode)) %>% 
+  filter(gbd_region != "Europe, Western",
+                                           gbd_region != "Global",
+                                           gbd_region != "Unallocated/Unspecified")
+
+# Create an empty list
+gbd_region_sf <- list()
+
+# for each region, Populate the empty list with all rows from "world" which corresponds to the country of the region
+for (i in 1:nrow(region)) {
+  gbd_region_sf[[i]] <- world %>% 
+    filter(ISO_A3 %in% as_vector(region[[2]][i]))
+}
+
+# Populate the gbd_region_sf with one last region, those who never received aid or are not part of the subregion from above.
+other_region <- ihme %>% 
+  group_by(gbd_region) %>% 
+  distinct(recipient_isocode)
+
+gbd_region_sf[[19]] <- world %>% 
+  filter(!(ISO_A3 %in% other_region$recipient_isocode))
+
+# Give the names of the region to the new lists
+names(gbd_region_sf) <- gbd_region_name$gbd_region
+names(gbd_region_sf)[[19]] <- "other_country"
+
+# Extract the lists in order to have  a data frame for each region in the global environment
+list2env(gbd_region_sf, .GlobalEnv)
+
+# cliping all the regions to have a single geometry
+asia_pacific <- st_union(`Asia Pacific, high-income`)
+asia_central <- st_union(`Asia, Central`)
+asia_south <- st_union(`Asia, South`)
+asia_east <- st_union(`Asia, East`)
+asia_southeast <- st_union(`Asia, Southeast`)
+latin_america_andean <- st_union(`Latin America, Andean`)
+latin_america_central <- st_union(`Latin America, Central`)
+latin_america_south <- st_union(`Latin America, Southern`)
+latin_america_tropical <- st_union(`Latin America, Tropical`)
+north_africa_middle_east <- st_union(`North Africa/Middle East`)
+oceania <- st_union(Oceania)
+sub_saharan_africa_central <- st_union(`Sub-Saharan Africa, Central`)
+sub_saharan_africa_south <- st_union(`Sub-Saharan Africa, Southern`)
+sub_saharan_africa_east <- st_union(`Sub-Saharan Africa, Eastern`)
+sub_saharan_africa_west <- st_union(`Sub-Saharan Africa, Western`)
+europe_central <- st_union(`Europe, Central`)
+europe_east <- st_union(`Europe, Eastern`)
+caribbean <- st_union(Caribbean)
+other_country <- st_union(other_country)
+
+
+# Create a new empty shapefile
+nrows <- 19
+geometry = st_sfc(lapply(1:nrows, function(x) st_geometrycollection()))
+df <- st_sf(id = 1:nrows, geometry = geometry)
+
+# Populate the new shapefile
+df$geometry <- c(asia_pacific, asia_south,  asia_central, asia_east, asia_southeast ,latin_america_andean , latin_america_central, latin_america_south , latin_america_tropical, north_africa_middle_east, oceania , sub_saharan_africa_central, sub_saharan_africa_south, sub_saharan_africa_east, sub_saharan_africa_west, europe_central, europe_east, caribbean, other_country)
+
+
+tot_earnings <- ihme %>% 
+  group_by(gbd_region) %>% 
+  summarise(earnings = sum(dah_19, na.rm = TRUE)) %>% 
+  filter(gbd_region != "Europe, Western",
+         gbd_region != "Global",
+         gbd_region != "Unallocated/Unspecified") %>% 
+  rbind(c("other_country", NA)) %>% 
+  mutate(earnings = as.numeric(earnings))
+
+df$tot_earnings <- tot_earnings$earnings
+
+df %>% 
+  ggplot() +
+  geom_sf() +
+  theme_void()
+
+# Create categories
+quantile_tot <- df %>%
+  pull(tot_earnings) %>%
+  quantile(probs = c(0, 0.25, 0.5, 0.75, 1), na.rm = TRUE)
+
+# Reformating the labels
+labels_earnings_tot <- tibble(
+  lab1 = quantile_tot,
+  lab2 = c(quantile_tot[2:length(quantile_tot)], NA)) %>%
+  slice(1:n() - 1) %>% # We remove the last row, since it has no meaning
+  mutate_all(round, digits = 0) %>% # We remove digits after the 0
+  mutate_all(paste0, "$") %>% # We add the dollar sign after the digits
+  mutate(labs = paste(lab1, lab2, sep =  "-"))
+
+# Includes categories in the shapefile with correct labels
+df <- df%>%
+  mutate(quantiles_earnings = cut(tot_earnings,
+                         breaks = quantile_tot, 
+                         labels = labels_earnings_tot$labs, 
+                         include.lowest = TRUE))
+
+# Change the projection
+world_robin_tot <- st_transform(df, crs = 'ESRI:54030')
+
+ggplot(data = world_robin_tot)+
+  geom_sf(mapping = aes(fill = quantiles_earnings)) +
+  scale_fill_carto_d(type = quantitative, palette = "BurgYl") +
+  guides(fill = guide_legend(label.position = "bottom")) +
+  theme_void() +
+  theme(legend.position = "bottom") +
+  labs(
+    title = "Total funds received per country for health aid",
+    subtitle = "from 1990 to 2019",
+    caption = "Source: Eurostat",
+    fill = ""
+  )
+```
+
+# Question 4
+
+```{r}
+# Prepare data for total expenditure 
+tot_earnings <- ihme %>% 
+  select(recipient_isocode, dah_19, year) %>% 
+  group_by(recipient_isocode, year) %>% 
+  summarise(earnings = sum(dah_19),) %>% 
+  ungroup()
+
+# Creating the world dataframes for each year
+years <- c(1990:2019)
+for (i in years) {
+  assign(paste0("world", i), world %>% mutate( year = i))
+}
+
+#Binding dataframes together
+
+world_year <- bind_rows(world1990,
+                        world1991,
+                        world1992,
+                        world1993,
+                        world1994,
+                        world1995,
+                        world1996,
+                        world1997,
+                        world1998,
+                        world1999,
+                        world2000,
+                        world2001,
+                        world2002,
+                        world2003,
+                        world2004,
+                        world2005,
+                        world2006,
+                        world2007,
+                        world2008,
+                        world2009,
+                        world2010,
+                        world2011,
+                        world2012,
+                        world2013,
+                        world2014,
+                        world2015,
+                        world2016,
+                        world2017,
+                        world2018,
+                        world2019)
+  
+# Joining the files
+world_year <- world_year %>%
+  left_join(tot_earnings, c("ISO_A3" = "recipient_isocode", "year" = "year"))
+
+# Create categories
+quantile_earnings <- world_year %>%
+  pull(earnings) %>%
+  quantile(probs = c(0, 0.25, 0.5, 0.75, 1), na.rm = TRUE)
+
+# Reformating the labels
+labels_earnings <- tibble(
+  lab1 = quantile_earnings,
+  lab2 = c(quantile_earnings[2:length(quantile_earnings)], NA)) %>%
+  slice(1:n() - 1) %>% # We remove the last row, since it has no meaning
+  mutate_all(round, digits = 0) %>% # We remove digits after the 0
+  mutate_all(paste0, "$") %>% # We add the dollar sign after the digits
+  mutate(labs = paste(lab1, lab2, sep =  "-"))
+
+# Includes categories in the shapefile with correct labels
+world_year <- world_year %>%
+  mutate(quantiles_earnings = cut(earnings,
+                         breaks = quantile_earnings, 
+                         labels = labels_earnings$labs, 
+                         include.lowest = TRUE,
+                         ordered_result = TRUE)) %>%
+  filter(!is.na(ISO_A3), !is.na(year))
+
+# Change the projection
+world_eck_year <- st_transform(world_year, crs = 'ESRI:54013')
+
+world_eck_year <- world_eck_year %>% 
+  st_simplify()
+
+# Plot the cartography
+ggplot()+
+  geom_sf(data = world_eck_year,
+          mapping = aes(fill = quantiles_earnings)) +
+  scale_fill_carto_d(type = quantitative, palette = "BurgYl") +
+  guides(fill = guide_legend(label.position = "bottom")) +
+  theme_void() +
+  theme(legend.position = "bottom") +
+  labs(
+    title = "Total funds received per country for health aid",
+    subtitle = "{closest_state}",
+    caption = "Source: Eurostat",
+    fill = ""  ) +
+  transition_states(year)
+```
